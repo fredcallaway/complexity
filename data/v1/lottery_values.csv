@@ -1,0 +1,17 @@
+question,heads,tails
+Q1,2,5
+Q1',5,8
+Q2,3,5
+Q2',6,8
+Q3,2,3
+Q3',5,6
+Q4,2,6
+Q4',5,9
+Q5,3,4
+Q5',6,7
+Q6,2,4
+Q6',5,7
+Q7'simple,3,7
+Q7simple,3,7
+Q7complex,3,7
+Q7'complex,3,7

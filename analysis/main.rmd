@@ -1,0 +1,151 @@
+---
+title: Complexity Aversion Analysis (v1)
+date: "`r Sys.Date()`"
+author: "fredcallaway"
+output:
+  rmdformats::robobook:
+    code_folding: hide
+    self_contained: true
+---
+
+```{r, include=FALSE}
+source('setup.r')
+knitr::opts_chunk$set(
+    fig.path="figs/",
+    results='asis', warning=FALSE, message=FALSE, fig.width=4, fig.height=3, fig.align="center"
+)
+version = "v1"
+load_data = function(name) read_csv(glue('../data/{version}/{name}.csv'))
+
+choices = load_data('choices')
+all_data = load_data('anonymized_raw')
+lottery_values = load_data('lottery_values')
+
+valuations = choices %>% 
+    group_by(participant, question) %>% 
+    filter(!choose_lottery) %>% 
+    slice(1) %>% 
+    ungroup() %>% 
+    select(!choose_lottery) %>% 
+    left_join(lottery_values)
+```
+
+## Attention check
+
+```{r}
+q1 = valuations %>% 
+    filter(question == "Example") %>% 
+    transmute(participant, first_guess=value)
+
+q2 = valuations %>% 
+    filter(question == "areyousure") %>% 
+    transmute(participant, second_guess=value)
+
+check = left_join(q1, q2) %>% 
+    mutate(check=if_else(first_guess == 4, "first", if_else(second_guess == 4, "second", "failed")))
+
+check %>% 
+    count(check) %>% 
+    kable
+```
+
+Guesses of people who failed:
+
+```{r}
+check %>% 
+    filter(check == "failed") %>% 
+    select(first_guess, second_guess) %>% 
+    t %>% 
+    kable(col.names=NULL)
+```
+
+For now, we are including everyone. It doesn't seem to make much difference.
+
+## Critical trials
+
+Our critical prediction is an interaction between complexity and the prior
+on the value assigned to a lottery, with more preference (or less aversion)
+for the complex lottery in the high prior condition. We do not see that. But
+it is very noisy. Error bars are 95% CI. Dots are individuals.
+
+
+```{r, fig.width=7, fig.height=3}
+critical = valuations %>% 
+    filter(grepl("7", question)) %>% 
+    mutate(
+        prior = if_else(str_detect(question, "'"), "high", "low"),
+        complexity = str_match(question, "Q7'?(\\w+)")[,2]
+    ) %>% 
+    left_join(check) %>% 
+    filter(check != "failed")
+
+p1 = critical %>% 
+    ggplot(aes(complexity, value, color=prior)) +
+    stat_summary(fun.data=mean_cl_boot, position=position_dodge(width=.1)) +
+    stat_summary(aes(group=prior), fun=mean, geom="line", position=position_dodge(width=.1))
+
+p2 = critical %>% 
+    ggplot(aes(complexity, value, color=prior)) +
+    theme(legend.position="none") +
+    geom_quasirandom(dodge.width=1, size=.5)
+
+p1 + p2 + plot_layout(guides="collect")
+```
+
+```{r}
+critical %>% 
+    group_by(prior, complexity) %>% 
+    summarise(across(value, list(mean=mean, sd=sd))) %>% 
+    kable(digits=3)
+```
+
+## Prior-building trials
+
+In these plots, each line is a participant. Relative value normalizes
+the provided value such that 0 is the minimum possible, 1 is the maximum,
+and 0.5 is the risk-neutral normative response. You can better see
+that there is some stability in risk preferences there.
+
+```{r, fig.width=7, fig.height=6}
+
+relative_score = function(x, lo, hi) {
+    ((x - lo) / (hi - lo))
+    # (((x - lo) / (hi - lo)) - 0.5) * 2
+}
+
+X = valuations %>% 
+    filter(str_detect(question, 'Q[1-6]')) %>% 
+    group_by(participant) %>% filter(n() == 6) %>% 
+    mutate(rel_value = relative_score(value, heads, tails)) %>% 
+    mutate(trial = str_sub(question, 2, 2)) %>% 
+    mutate(prior = if_else(str_detect(question, "'"), "high", "low"))
+
+# ht = X %>% distinct(prior, trial, heads, tails)
+
+p1 = X %>% 
+    ggplot(aes(trial, value, group=participant, color=prior)) +
+    geom_line(alpha=0.3, size=.5) +
+    # geom_line(aes(trial, heads,group=0), ht) +
+    # geom_line(aes(trial, tails,group=0), ht) +
+    facet_wrap(~prior) + theme(legend.position="none")
+
+p2 = X %>% 
+    ggplot(aes(fct_reorder(participant, rel_value), rel_value, color=prior)) +
+    geom_point(alpha=0.5) +
+    facet_wrap(~prior) + 
+    theme(legend.position="none", axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+    labs(y="relative value", x="participant")
+
+(p1 / p2) + plot_layout(heights=c(1,2))
+```
+
+## Thoughts on complex trials
+
+```{r}
+all_data %>% 
+    left_join(select(critical, participant, complexity)) %>% 
+    filter(complexity == "complex") %>% 
+    select(Q48) %>% 
+    drop_na(Q48) %>% 
+    kable
+```
